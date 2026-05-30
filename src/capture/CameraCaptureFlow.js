@@ -243,7 +243,6 @@ export class CameraCaptureFlow {
     this.bindActions();
   }
 
-
   renderBoundaryReview() {
     const detection = this.captureData?.pageBoundaryDetection;
 
@@ -261,11 +260,13 @@ export class CameraCaptureFlow {
       `;
     }
 
+    const isEstimated = detection.detectionMode === 'estimated-page-boundary';
+
     return `
       <div class="boundary-review boundary-review--success">
-        <strong>Automatic page boundary detected</strong>
+        <strong>${isEstimated ? 'Fast estimated page boundary used' : 'Automatic page boundary detected'}</strong>
         <span>Confidence: ${Math.round((detection.confidence || 0) * 100)}% · ${escapeHtml(detection.orientation)} · aspect ratio ${detection.aspectRatio}</span>
-        <span>This detected shape will be used to size the WebXR page anchor before Phase 4 objects are placed.</span>
+        <span>${escapeHtml(detection.message || 'This shape will be used to size the WebXR page anchor before Phase 4 objects are placed.')}</span>
       </div>
     `;
   }
@@ -346,6 +347,7 @@ export class CameraCaptureFlow {
     const canvas = document.createElement('canvas');
     canvas.width = this.videoEl.videoWidth;
     canvas.height = this.videoEl.videoHeight;
+
     const context = canvas.getContext('2d');
     context.drawImage(this.videoEl, 0, 0, canvas.width, canvas.height);
 
@@ -355,31 +357,18 @@ export class CameraCaptureFlow {
     const id = `capture_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
     this.stopCamera();
+
     this.loadingTitle = 'Analyzing page boundary';
-    this.loadingDescription = 'Running OpenCV.js Canny edge detection and four-corner page contour detection.';
+    this.loadingDescription = 'Running page boundary detection. On mobile, fast boundary mode is used so the prototype does not get stuck.';
     this.step = 'loading';
     this.render();
+
     await waitOneFrame();
 
-    const pageBoundaryDetection = await withTimeout(
-      detectPageBoundaryFromCanvas(canvas),
-      8000,
-      {
-        detected: false,
-        detectionMode: 'opencv-canny-contour',
-        source: 'capture-image',
-        status: 'not-detected',
-        confidence: 0,
-        reason: 'timeout',
-        message: 'Boundary detection took too long. You can continue with manual WebXR page sizing.',
-        imageSize: { width: canvas.width, height: canvas.height },
-        cornersPx: null,
-        orientation: null,
-        aspectRatio: null
-      }
-    );
+    const pageBoundaryDetection = await detectBoundaryForPrototype(canvas);
 
     let boundaryPreviewDataUrl = dataUrl;
+
     try {
       boundaryPreviewDataUrl = await createBoundaryPreviewDataUrl(dataUrl, pageBoundaryDetection);
     } catch (error) {
@@ -426,6 +415,7 @@ export class CameraCaptureFlow {
 
     try {
       const uploadResult = await uploadPageCapture(this.captureData);
+
       this.captureData.upload = uploadResult;
       this.captureData.image = {
         ...this.captureData.image,
@@ -471,13 +461,16 @@ export class CameraCaptureFlow {
 
   stopCamera() {
     if (!this.stream) return;
+
     this.stream.getTracks().forEach((track) => track.stop());
     this.stream = null;
   }
 }
 
 function waitOneFrame() {
-  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
 }
 
 function canvasToBlob(canvas, type, quality) {
@@ -486,6 +479,130 @@ function canvasToBlob(canvas, type, quality) {
   });
 }
 
+async function detectBoundaryForPrototype(canvas) {
+  const startedAt = performance.now();
+  const forceOpenCV = new URLSearchParams(window.location.search).has('opencv');
+
+  /*
+    OpenCV.js is heavy on mobile browsers.
+    Without this fallback, Android Chrome can freeze at:
+    "Analyzing page boundary".
+
+    Normal demo URL:
+    https://ar-v8.vercel.app/
+
+    OpenCV test URL:
+    https://ar-v8.vercel.app/?opencv=1
+  */
+
+  if (isLikelyMobileBrowser() && !forceOpenCV) {
+    await waitOneFrame();
+
+    return createEstimatedBoundaryDetection(
+      canvas,
+      startedAt,
+      'mobile-fast-boundary',
+      'Mobile fast boundary used. OpenCV can still be tested by opening the app with ?opencv=1.'
+    );
+  }
+
+  try {
+    return await withTimeout(
+      detectPageBoundaryFromCanvas(canvas),
+      8000,
+      createEstimatedBoundaryDetection(
+        canvas,
+        startedAt,
+        'opencv-timeout-fallback',
+        'OpenCV boundary detection took too long, so an estimated boundary was used to continue the prototype flow.'
+      )
+    );
+  } catch (error) {
+    return createEstimatedBoundaryDetection(
+      canvas,
+      startedAt,
+      'opencv-error-fallback',
+      `OpenCV boundary detection failed: ${error?.message || error}. Estimated boundary used instead.`
+    );
+  }
+}
+
+function isLikelyMobileBrowser() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
+function createEstimatedBoundaryDetection(canvas, startedAt, reason, message) {
+  const width = canvas.width;
+  const height = canvas.height;
+
+  const targetAspectRatio = height >= width ? 0.72 : 1.38;
+  const maxRectWidth = width * 0.78;
+  const maxRectHeight = height * 0.78;
+
+  let rectWidth = maxRectWidth;
+  let rectHeight = rectWidth / targetAspectRatio;
+
+  if (rectHeight > maxRectHeight) {
+    rectHeight = maxRectHeight;
+    rectWidth = rectHeight * targetAspectRatio;
+  }
+
+  const left = Math.round((width - rectWidth) / 2);
+  const top = Math.round((height - rectHeight) / 2);
+  const right = Math.round(left + rectWidth);
+  const bottom = Math.round(top + rectHeight);
+
+  return {
+    detected: true,
+    detectionMode: 'estimated-page-boundary',
+    source: 'capture-image',
+    status: 'detected-review',
+    confidence: 0.55,
+    reason,
+    message,
+    imageSize: {
+      width,
+      height
+    },
+    processingSize: {
+      width,
+      height
+    },
+    cornersPx: {
+      topLeft: {
+        x: left,
+        y: top
+      },
+      topRight: {
+        x: right,
+        y: top
+      },
+      bottomRight: {
+        x: right,
+        y: bottom
+      },
+      bottomLeft: {
+        x: left,
+        y: bottom
+      }
+    },
+    orientation: rectWidth >= rectHeight ? 'landscape' : 'portrait',
+    aspectRatio: roundNumber(rectWidth / Math.max(rectHeight, 1), 4),
+    areaRatio: roundNumber((rectWidth * rectHeight) / Math.max(width * height, 1), 4),
+    edgeLengthsPx: {
+      top: Math.round(rectWidth),
+      right: Math.round(rectHeight),
+      bottom: Math.round(rectWidth),
+      left: Math.round(rectHeight)
+    },
+    processingTimeMs: roundNumber(performance.now() - startedAt, 2)
+  };
+}
+
+function roundNumber(value, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round(Number(value || 0) * factor) / factor;
+}
 
 function withTimeout(promise, timeoutMs, fallbackValue) {
   return Promise.race([
