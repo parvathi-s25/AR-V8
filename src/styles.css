@@ -1,0 +1,817 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #050816;
+  color: #f8fafc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+canvas {
+  display: block;
+}
+
+#ui-root {
+  pointer-events: none;
+}
+
+.debug-panel {
+  pointer-events: auto;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  width: min(420px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(14px);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.debug-panel h1 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.debug-panel p {
+  margin: 6px 0;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.status-card {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.status-card span {
+  display: block;
+  font-size: 10px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.status-card strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: #f8fafc;
+}
+
+.button-row,
+.control-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.control-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+button {
+  appearance: none;
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  background: rgba(14, 165, 233, 0.17);
+  color: #e0f2fe;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+button:hover {
+  background: rgba(14, 165, 233, 0.32);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(239, 68, 68, 0.17);
+  color: #fecaca;
+}
+
+button.secondary {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(100, 116, 139, 0.17);
+  color: #e2e8f0;
+}
+
+.json-box {
+  width: 100%;
+  min-height: 190px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.86);
+  color: #bbf7d0;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.footer-note {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+@media (max-width: 640px) {
+  .debug-panel {
+    top: 8px;
+    left: 8px;
+    width: calc(100vw - 16px);
+    padding: 12px;
+  }
+
+  .control-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* AR mode overlay behavior:
+   The large debug panel is useful before AR starts, but it blocks the camera view
+   once immersive-ar begins. In AR, hide it automatically and show a small HUD. */
+.debug-panel.is-hidden-in-ar {
+  display: none;
+}
+
+.ar-panel-warning {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.38);
+  background: rgba(180, 83, 9, 0.18);
+  color: #fde68a;
+}
+
+.ar-panel-warning span {
+  color: #fde68a;
+  font-size: 11px;
+}
+
+.ar-hud {
+  pointer-events: auto;
+  position: fixed;
+  left: 50%;
+  bottom: 76px;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 24px));
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.36);
+}
+
+.ar-hud.is-visible {
+  display: flex;
+}
+
+.ar-hud__text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ar-hud__text strong {
+  font-size: 12px;
+  color: #f8fafc;
+}
+
+.ar-hud__text span {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #cbd5e1;
+}
+
+.ar-hud__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ar-hud button {
+  padding: 8px 10px;
+  border-radius: 999px;
+}
+
+@media (max-width: 640px) {
+  .ar-hud {
+    bottom: 70px;
+    border-radius: 16px;
+  }
+
+  .ar-hud__text span {
+    max-width: 150px;
+  }
+}
+
+/* Phase 1A capture-intake flow */
+.phase-capture-active .debug-panel,
+.phase-capture-active .ar-hud {
+  display: none !important;
+}
+
+.app-ar-button-hidden {
+  display: none !important;
+}
+
+.capture-flow {
+  pointer-events: auto;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(14, 165, 233, 0.16), transparent 32%),
+    radial-gradient(circle at 80% 90%, rgba(34, 197, 94, 0.13), transparent 28%),
+    rgba(2, 6, 23, 0.92);
+  backdrop-filter: blur(10px);
+  overflow: auto;
+}
+
+.capture-card,
+.capture-shell {
+  width: min(560px, 100%);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 22px;
+  background: rgba(15, 23, 42, 0.82);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
+  padding: 20px;
+}
+
+.capture-card--center {
+  text-align: center;
+}
+
+.capture-card h1,
+.capture-card h2,
+.capture-shell h2 {
+  margin: 8px 0;
+  color: #f8fafc;
+  line-height: 1.1;
+}
+
+.capture-card h1 {
+  font-size: clamp(34px, 8vw, 58px);
+  letter-spacing: -0.055em;
+}
+
+.capture-card h2,
+.capture-shell h2 {
+  font-size: clamp(22px, 5vw, 32px);
+  letter-spacing: -0.035em;
+}
+
+.capture-card p,
+.capture-note {
+  color: #cbd5e1;
+  line-height: 1.55;
+  font-size: 14px;
+}
+
+.capture-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.14);
+  color: #bae6fd;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.capture-badge--danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(239, 68, 68, 0.15);
+  color: #fecaca;
+}
+
+.capture-primary,
+.capture-secondary {
+  min-height: 46px;
+  border-radius: 14px;
+  font-size: 15px;
+  padding: 12px 16px;
+}
+
+.capture-primary {
+  border-color: rgba(56, 189, 248, 0.58);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.92), rgba(37, 99, 235, 0.9));
+  color: white;
+  box-shadow: 0 12px 30px rgba(14, 165, 233, 0.24);
+}
+
+.capture-secondary {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(100, 116, 139, 0.18);
+  color: #e2e8f0;
+}
+
+.capture-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.capture-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.capture-header span {
+  color: #7dd3fc;
+  font-size: 12px;
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.camera-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: #020617;
+  aspect-ratio: 3 / 4;
+  max-height: 62vh;
+}
+
+.camera-video,
+.capture-preview {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.page-guide {
+  position: absolute;
+  inset: 9%;
+  border: 2px dashed rgba(125, 211, 252, 0.55);
+  border-radius: 14px;
+  box-shadow: 0 0 0 999px rgba(2, 6, 23, 0.28);
+}
+
+.corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: #facc15;
+}
+
+.corner-tl { left: -2px; top: -2px; border-left: 4px solid; border-top: 4px solid; }
+.corner-tr { right: -2px; top: -2px; border-right: 4px solid; border-top: 4px solid; }
+.corner-br { right: -2px; bottom: -2px; border-right: 4px solid; border-bottom: 4px solid; }
+.corner-bl { left: -2px; bottom: -2px; border-left: 4px solid; border-bottom: 4px solid; }
+
+.page-guide-text {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.74);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.capture-instructions-mini {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.capture-instructions-mini span {
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #cbd5e1;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.capture-shell--review .capture-preview {
+  max-height: 45vh;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  object-fit: contain;
+  background: #020617;
+}
+
+.quality-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.quality-grid div {
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.quality-grid span {
+  display: block;
+  color: #94a3b8;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.quality-grid strong {
+  display: block;
+  margin-top: 3px;
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.quality-warnings {
+  margin: 0;
+  padding-left: 18px;
+  color: #fde68a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.capture-actions-split {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 10px;
+}
+
+.instruction-list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.instruction-list div {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.instruction-list strong {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.22);
+  color: #bae6fd;
+}
+
+.instruction-list span {
+  color: #e2e8f0;
+  font-size: 14px;
+}
+
+.loading-spinner {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 12px;
+  border: 4px solid rgba(148, 163, 184, 0.25);
+  border-top-color: #38bdf8;
+  border-radius: 999px;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+  .capture-flow {
+    padding: 12px;
+    place-items: start center;
+  }
+
+  .capture-card,
+  .capture-shell {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .camera-frame {
+    max-height: 58vh;
+  }
+
+  .capture-instructions-mini,
+  .quality-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .capture-actions-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phase 2/3 AR boot overlay: shown after image upload and Start AR scan. */
+.ar-booting-active .debug-panel,
+.ar-booting-active .ar-hud {
+  display: none !important;
+}
+
+.ar-boot-overlay {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: none;
+  place-items: center;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(14, 165, 233, 0.16), transparent 34%),
+    radial-gradient(circle at 80% 90%, rgba(34, 197, 94, 0.14), transparent 30%),
+    rgba(2, 6, 23, 0.74);
+  backdrop-filter: blur(6px);
+}
+
+.ar-boot-overlay.is-visible {
+  pointer-events: auto;
+  display: grid;
+}
+
+.ar-boot-card {
+  width: min(620px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 24px;
+  background: rgba(15, 23, 42, 0.88);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  padding: 22px;
+  text-align: center;
+}
+
+.ar-boot-card--error {
+  border-color: rgba(248, 113, 113, 0.38);
+}
+
+.ar-boot-card h2 {
+  margin: 10px 0 8px;
+  color: #f8fafc;
+  font-size: clamp(25px, 6vw, 38px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.ar-boot-card p {
+  color: #cbd5e1;
+  line-height: 1.55;
+  margin: 10px auto;
+  max-width: 520px;
+}
+
+.ar-boot-start-button {
+  margin-top: 10px;
+  min-width: min(260px, 100%);
+}
+
+.ar-boot-progress {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+  text-align: left;
+}
+
+.ar-boot-progress div {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.64);
+  color: #cbd5e1;
+}
+
+.ar-boot-progress div.is-active {
+  border-color: rgba(56, 189, 248, 0.52);
+  background: rgba(14, 165, 233, 0.14);
+  color: #f8fafc;
+}
+
+.ar-boot-progress strong {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.18);
+  color: #bae6fd;
+}
+
+.ar-boot-progress span {
+  font-weight: 750;
+  font-size: 14px;
+}
+
+.ar-boot-instructions {
+  text-align: left;
+  margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+  .ar-boot-overlay {
+    padding: 12px;
+    place-items: start center;
+  }
+
+  .ar-boot-card {
+    padding: 16px;
+    border-radius: 18px;
+  }
+}
+
+/* v7: keep capture flow mounted so STOP AR can return to instructions cleanly. */
+.capture-flow.is-complete {
+  display: none;
+}
+
+.capture-status-message {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 14px;
+  background: rgba(14, 165, 233, 0.14);
+  color: #dbeafe;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.control-section {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.control-section h2,
+.phase4-summary h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: #e2e8f0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.control-section h2 span {
+  color: #7dd3fc;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.phase4-summary {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  border-radius: 12px;
+  background: rgba(88, 28, 135, 0.16);
+}
+
+.phase4-summary p {
+  margin: 0 0 8px;
+  color: #ddd6fe;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.phase4-summary table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+.phase4-summary th,
+.phase4-summary td {
+  padding: 8px;
+  border-bottom: 1px solid rgba(167, 139, 250, 0.18);
+  color: #f5f3ff;
+  text-align: left;
+  vertical-align: top;
+}
+
+.phase4-summary th {
+  color: #c4b5fd;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(76, 29, 149, 0.28);
+}
+
+/* v8 Phase 3.5: OpenCV/Canny page boundary review */
+.boundary-review,
+.boundary-debug-summary {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.68);
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.boundary-review strong,
+.boundary-debug-summary strong {
+  color: #f8fafc;
+}
+
+.boundary-review span,
+.boundary-debug-summary span {
+  color: #cbd5e1;
+}
+
+.boundary-review--success,
+.boundary-debug-summary--success {
+  border-color: rgba(34, 197, 94, 0.36);
+  background: rgba(22, 101, 52, 0.18);
+}
+
+.boundary-review--warning,
+.boundary-debug-summary--warning {
+  border-color: rgba(249, 115, 22, 0.44);
+  background: rgba(154, 52, 18, 0.18);
+}
+
+.boundary-debug-summary--neutral {
+  border-color: rgba(148, 163, 184, 0.24);
+}

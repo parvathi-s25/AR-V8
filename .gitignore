@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+.env
+
+# Python backend local files
+backend/.venv/
+backend/__pycache__/
+backend/**/*.pyc
+
+# Runtime captured images stay local and should not be committed.
+backend/captured_images/*
+!backend/captured_images/.gitkeep

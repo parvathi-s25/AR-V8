@@ -1,0 +1,2 @@
+# Runtime page captures are saved in this folder by the FastAPI backend.
+# Keep this file so the folder exists in Git.

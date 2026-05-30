@@ -1,0 +1,89 @@
+{
+  "id": "storybook_demo_scene_001",
+  "title": "Demo AR Storytelling Scene",
+  "durationSec": 18,
+  "characters": [
+    {
+      "id": "hero",
+      "name": "Hero",
+      "assetUrl": null,
+      "scale": 1,
+      "footprintRadiusMeters": 0.035,
+      "fallbackColor": "#38bdf8"
+    },
+    {
+      "id": "guide",
+      "name": "Guide",
+      "assetUrl": null,
+      "scale": 1,
+      "footprintRadiusMeters": 0.032,
+      "fallbackColor": "#a78bfa"
+    }
+  ],
+  "timeline": [
+    {
+      "timeSec": 0,
+      "characterId": "hero",
+      "action": "enter",
+      "animation": "Idle",
+      "position": { "x": -0.06, "z": 0.05 },
+      "rotationY": 0
+    },
+    {
+      "timeSec": 0,
+      "characterId": "guide",
+      "action": "enter",
+      "animation": "Idle",
+      "position": { "x": 0.06, "z": 0.05 },
+      "rotationY": 0
+    },
+    {
+      "timeSec": 4,
+      "characterId": "hero",
+      "action": "walk",
+      "animation": "Walk",
+      "position": { "x": 0.06, "z": -0.05 },
+      "rotationY": 1.57
+    },
+    {
+      "timeSec": 5,
+      "characterId": "guide",
+      "action": "gesture",
+      "animation": "Wave",
+      "position": { "x": -0.05, "z": -0.04 },
+      "rotationY": -1.57
+    },
+    {
+      "timeSec": 10,
+      "characterId": "hero",
+      "action": "perform",
+      "animation": "Wave",
+      "position": { "x": 0.02, "z": 0.0 },
+      "rotationY": 0
+    },
+    {
+      "timeSec": 11,
+      "characterId": "guide",
+      "action": "idle",
+      "animation": "Idle",
+      "position": { "x": -0.02, "z": 0.02 },
+      "rotationY": 0
+    },
+    {
+      "timeSec": 15,
+      "characterId": "hero",
+      "action": "idle",
+      "animation": "Idle",
+      "position": { "x": -0.04, "z": -0.02 },
+      "rotationY": 0
+    },
+    {
+      "timeSec": 15,
+      "characterId": "guide",
+      "action": "idle",
+      "animation": "Idle",
+      "position": { "x": 0.04, "z": -0.02 },
+      "rotationY": 0
+    }
+  ]
+}
