@@ -11,9 +11,11 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "@vitejs/plugin-basic-ssl": "latest",
-    "vite": "latest",
-    "three": "latest"
+    "@vitejs/plugin-basic-ssl": "^1.1.0",
+    "three": "^0.160.1",
+    "vite": "^5.4.11"
   },
-  "devDependencies": {}
+  "engines": {
+    "node": "20.x"
+  }
 }
