@@ -58,10 +58,6 @@ class ARStorytellingOptionAApp {
     this.setupARBootOverlay();
     this.setupEvents();
 
-    this.storyCharacterRenderer.load().catch((error) => {
-      console.warn('Phase 4 story renderer loaded with fallback characters:', error);
-    });
-
     this.renderer.setAnimationLoop((timestamp, frame) => this.animate(timestamp, frame));
   }
 

@@ -45,7 +45,10 @@ export async function uploadImageAndGetAnimation(captureData) {
     throw new Error(message);
   }
 
-  return parseAnimationResponse(response);
+  const items = await parseAnimationResponse(response);
+  // Pre-fetch each GLB through the proxy so GLTFLoader gets a same-origin blob: URL.
+  // Without this, GLTFLoader hits ngrok directly, gets the HTML interstitial, and fails.
+  return fetchGLBsAsBlobs(items);
 }
 
 async function parseAnimationResponse(response) {
@@ -64,6 +67,40 @@ async function parseAnimationResponse(response) {
   // Unknown content-type — attempt to treat body as binary GLB.
   const blob = await response.blob();
   return [{ glbUrl: URL.createObjectURL(blob), glbBlob: blob }];
+}
+
+// Fetch each GLB item as a blob through the Vite proxy (dev) or directly (prod).
+// Returns the same array but with glbUrl replaced by a blob: URL so GLTFLoader
+// can load it as same-origin — no CORS, no ngrok interstitial.
+async function fetchGLBsAsBlobs(items) {
+  return Promise.all(
+    items.map(async (item) => {
+      if (item.glbBlob) {
+        return item; // already a local blob, nothing to do
+      }
+      try {
+        const fetchUrl = import.meta.env.DEV ? toProxyPath(item.glbUrl) : item.glbUrl;
+        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(5 * 60 * 1000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        return { ...item, glbBlob: blob, glbUrl: URL.createObjectURL(blob) };
+      } catch (err) {
+        console.warn(`GLB fetch failed for ${item.glbUrl}, GLTFLoader will try the URL directly:`, err);
+        return item;
+      }
+    })
+  );
+}
+
+// Rewrite an absolute ngrok URL to go through the Vite dev proxy.
+// e.g. https://foo.ngrok.app/cache/animated_glb/x.glb → /animation-proxy/cache/animated_glb/x.glb
+function toProxyPath(url) {
+  try {
+    const { pathname, search } = new URL(url);
+    return `/animation-proxy${pathname}${search}`;
+  } catch {
+    return url;
+  }
 }
 
 function isGLBContentType(contentType) {
