@@ -52,6 +52,9 @@ class ARStorytellingOptionAApp {
     this.xrSessionHasStartedAtLeastOnce = false;
     this.isReturningFromXRSessionEnd = false;
 
+    // Smoothed finger-based scale multiplier (1.0 = no adjustment).
+    this.fingerScaleMultiplier = 1.0;
+
     this.setupARButton();
     this.setupUI();
     this.setupCaptureFlow();
@@ -64,7 +67,7 @@ class ARStorytellingOptionAApp {
   setupARButton() {
     const button = ARButton.createButton(this.renderer, {
       requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay', 'anchors', 'plane-detection'],
+      optionalFeatures: ['dom-overlay', 'anchors', 'plane-detection', 'hand-tracking'],
       domOverlay: { root: document.body }
     });
 
@@ -264,15 +267,51 @@ class ARStorytellingOptionAApp {
   animate(timestamp, frame) {
     if (frame) {
       this.hitTestManager.update(frame);
+      this.updateFingerScale(frame);
     }
 
     this.storyCharacterRenderer.update({
       timestampMs: timestamp,
       pageAnchor: this.state.pageAnchor,
-      boundaryClamp: this.state.boundaryClamp
+      boundaryClamp: this.state.boundaryClamp,
+      fingerScaleMultiplier: this.fingerScaleMultiplier
     });
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  updateFingerScale(frame) {
+    const referenceSpace = this.renderer.xr.getReferenceSpace();
+    if (!referenceSpace || typeof frame.getJointPose !== 'function') return;
+
+    const session = this.renderer.xr.getSession();
+    if (!session) return;
+
+    for (const inputSource of session.inputSources) {
+      if (!inputSource.hand) continue;
+
+      const pipSpace = inputSource.hand.get('middle-finger-phalanx-intermediate');
+      const dipSpace = inputSource.hand.get('middle-finger-phalanx-distal');
+      if (!pipSpace || !dipSpace) continue;
+
+      const pipPose = frame.getJointPose(pipSpace, referenceSpace);
+      const dipPose = frame.getJointPose(dipSpace, referenceSpace);
+      if (!pipPose || !dipPose) continue;
+
+      const p = pipPose.transform.position;
+      const d = dipPose.transform.position;
+      const measured = Math.sqrt((p.x - d.x) ** 2 + (p.y - d.y) ** 2 + (p.z - d.z) ** 2);
+
+      // Sanity-check: realistic middle phalanx is 10–60 mm; discard outliers.
+      if (measured > 0.01 && measured < 0.06) {
+        // Average adult middle phalanx of middle finger ≈ 25 mm.
+        const raw = measured / 0.025;
+        const clamped = Math.max(0.5, Math.min(2.0, raw));
+        // Exponential moving average — alpha 0.08 keeps scale stable between frames.
+        this.fingerScaleMultiplier += (clamped - this.fingerScaleMultiplier) * 0.08;
+      }
+      break; // Use first detected hand only.
+    }
   }
 
   onResize() {

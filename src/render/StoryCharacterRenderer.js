@@ -111,7 +111,7 @@ export class StoryCharacterRenderer {
       const gltf = await this.loader.loadAsync(characterConfig.assetUrl);
       const model = gltf.scene;
       model.name = `${characterConfig.id}-gltf-model`;
-      model.scale.setScalar(characterConfig.scale ?? 0.06);
+      model.scale.setScalar(characterConfig.scale ?? 0.085);
       model.rotation.x = -Math.PI / 2;
       root.add(model);
 
@@ -180,7 +180,7 @@ export class StoryCharacterRenderer {
     return mesh;
   }
 
-  update({ timestampMs, pageAnchor, boundaryClamp }) {
+  update({ timestampMs, pageAnchor, boundaryClamp, fingerScaleMultiplier = 1 }) {
     const deltaSec = this.lastTimestampMs ? Math.min(0.05, (timestampMs - this.lastTimestampMs) / 1000) : 0;
     this.lastTimestampMs = timestampMs;
 
@@ -219,6 +219,7 @@ export class StoryCharacterRenderer {
       const safeLocal = boundaryClamp.clampLocal(new THREE.Vector3(state.position.x, 0.035, state.position.z));
       root.position.copy(safeLocal);
       root.rotation.y = state.rotationY ?? 0;
+      root.scale.setScalar(fingerScaleMultiplier);
 
       root.userData.localPosition = safeLocal.clone();
       root.userData.currentState = state.action;
@@ -329,7 +330,7 @@ export class StoryCharacterRenderer {
       id: item.id || `dynamic_${index}`,
       name: item.id || `Character ${index + 1}`,
       assetUrl: item.glbUrl,
-      scale: 0.06,
+      scale: 0.085,
       footprintRadiusMeters: 0.035,
       fallbackColor: '#38bdf8'
     }));
