@@ -2,6 +2,14 @@ const ANIMATION_API_BASE_URL = (
   import.meta.env.VITE_ANIMATION_API_URL || 'https://paulita-nonoptimistical-fae.ngrok-free.dev'
 ).replace(/\/$/, '');
 
+// In dev, route through Vite's server proxy so the request is server-to-server:
+//   - no CORS preflight (same-origin from the browser's perspective)
+//   - no ngrok interstitial (proxy adds ngrok-skip-browser-warning server-side)
+// In production, call the backend directly (Flask must have CORS configured).
+const ANIMATION_FETCH_URL = import.meta.env.DEV
+  ? '/animation-proxy/run'
+  : `${ANIMATION_API_BASE_URL}/run`;
+
 export function getAnimationApiUrl() {
   return ANIMATION_API_BASE_URL;
 }
@@ -16,9 +24,10 @@ export async function uploadImageAndGetAnimation(captureData) {
   }
 
   const formData = new FormData();
+  // Field name must be exactly "image" — the Flask /run endpoint expects this.
   formData.append('image', captureData.blob, `${captureData.id}.jpg`);
 
-  const response = await fetch(`${ANIMATION_API_BASE_URL}/run`, {
+  const response = await fetch(ANIMATION_FETCH_URL, {
     method: 'POST',
     body: formData
   });
