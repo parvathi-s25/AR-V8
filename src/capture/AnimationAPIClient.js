@@ -20,10 +20,6 @@ export async function uploadImageAndGetAnimation(captureData) {
 
   const response = await fetch(`${ANIMATION_API_BASE_URL}/run`, {
     method: 'POST',
-    headers: {
-      // Bypass ngrok's browser-interstitial page for programmatic requests
-      'ngrok-skip-browser-warning': 'true'
-    },
     body: formData
   });
 
