@@ -406,7 +406,7 @@ export class CameraCaptureFlow {
     }
 
     this.loadingTitle = 'Generating animation';
-    this.loadingDescription = 'Sending image to the animation server. This may take a few seconds…';
+    this.loadingDescription = 'Image sent to the animation server. The full pipeline (extraction → image gen → 3D → rigging → animation) takes <strong>3–8 minutes</strong>. Please keep this screen open.';
     this.step = 'loading';
     this.render();
 

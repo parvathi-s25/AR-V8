@@ -7,8 +7,8 @@ const ANIMATION_API_BASE_URL = (
 //   - no ngrok interstitial (proxy adds ngrok-skip-browser-warning server-side)
 // In production, call the backend directly (Flask must have CORS configured).
 const ANIMATION_FETCH_URL = import.meta.env.DEV
-  ? '/animation-proxy/run'
-  : `${ANIMATION_API_BASE_URL}/run`;
+  ? '/animation-proxy/animate'
+  : `${ANIMATION_API_BASE_URL}/animate`;
 
 export function getAnimationApiUrl() {
   return ANIMATION_API_BASE_URL;
@@ -24,12 +24,14 @@ export async function uploadImageAndGetAnimation(captureData) {
   }
 
   const formData = new FormData();
-  // Field name must be exactly "image" — the Flask /run endpoint expects this.
+  // Field name must be exactly "image" — Flask /animate checks request.files["image"].
   formData.append('image', captureData.blob, `${captureData.id}.jpg`);
 
+  // Pipeline runs 3-8 minutes; set a generous timeout so the browser doesn't abort early.
   const response = await fetch(ANIMATION_FETCH_URL, {
     method: 'POST',
-    body: formData
+    body: formData,
+    signal: AbortSignal.timeout(10 * 60 * 1000)
   });
 
   if (!response.ok) {
@@ -77,7 +79,8 @@ function extractGLBsFromJSON(json) {
     return json
       .map((item) => ({
         glbUrl: typeof item === 'string' ? item : (item.url || item.glbUrl || item.glb_url),
-        glbBlob: null
+        glbBlob: null,
+        id: item.char_id || item.id || undefined
       }))
       .filter((item) => Boolean(item.glbUrl));
   }
