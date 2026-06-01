@@ -128,6 +128,13 @@ class ARStorytellingOptionAApp {
     this.state.setPageCapture(captureData);
     document.body.classList.remove('phase-capture-active');
 
+    // Load the animated GLBs returned by the backend into the AR scene.
+    if (captureData?.animationGlbs?.length) {
+      this.storyCharacterRenderer.reloadFromGLBs(captureData.animationGlbs).catch((err) => {
+        console.warn('Dynamic GLB load failed, falling back to default story characters:', err);
+      });
+    }
+
     // Keep the loading/instruction overlay visible until Phase 2/3 is actually ready:
     // XR session active + WebXR hit-test reticle visible.
     this.arBootOverlay.showStarting();

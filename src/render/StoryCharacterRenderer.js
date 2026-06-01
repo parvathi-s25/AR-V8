@@ -313,6 +313,50 @@ export class StoryCharacterRenderer {
     this.onCharactersUpdate?.(characters);
   }
 
+  /**
+   * Replace all current characters with animated GLBs received from the backend.
+   * Each item in glbItems must have { glbUrl: string, glbBlob?: Blob }.
+   */
+  async reloadFromGLBs(glbItems) {
+    if (!Array.isArray(glbItems) || glbItems.length === 0) {
+      console.warn('reloadFromGLBs: no GLB items provided.');
+      return;
+    }
+
+    const characters = glbItems.map((item, index) => ({
+      id: item.id || `dynamic_${index}`,
+      name: item.id || `Character ${index + 1}`,
+      assetUrl: item.glbUrl,
+      scale: 1,
+      footprintRadiusMeters: 0.035,
+      fallbackColor: '#38bdf8'
+    }));
+
+    // Spread multiple characters across the page so they don't stack.
+    const spread = 0.06;
+    const half = Math.floor(characters.length / 2);
+    const timeline = characters.map((char, index) => ({
+      timeSec: 0,
+      characterId: char.id,
+      action: 'idle',
+      animation: 'Idle',
+      position: { x: (index - half) * spread, z: 0 },
+      rotationY: 0
+    }));
+
+    this.story = {
+      id: 'dynamic_story',
+      title: 'Dynamic AR Scene',
+      durationSec: 30,
+      characters,
+      timeline
+    };
+
+    await this.buildCharacters();
+    this.storyStartTimestampMs = null;
+    this.emitCharacterState([]);
+  }
+
   clearCharacters() {
     while (this.pageGroup.children.length > 0) {
       const child = this.pageGroup.children.pop();

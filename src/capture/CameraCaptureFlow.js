@@ -1,5 +1,5 @@
 import { analyzeImageQuality } from './ImageQuality.js';
-import { getCaptureApiBaseUrl, uploadPageCapture } from './CaptureUploadClient.js';
+import { getAnimationApiUrl, uploadImageAndGetAnimation } from './AnimationAPIClient.js';
 import { detectPageBoundaryFromCanvas } from '../vision/PageBoundaryDetector.js';
 import { createBoundaryPreviewDataUrl } from '../vision/BoundaryPreview.js';
 
@@ -56,8 +56,8 @@ export class CameraCaptureFlow {
         <div class="capture-badge">Prototype</div>
         <h1>AR Storytelling</h1>
         <p>
-          Capture the physical book/page first. The image will be uploaded to the backend
-          and saved in the <strong>captured_images</strong> folder before AR scanning starts.
+          Capture the physical book/page. The image will be sent to the animation server
+          which generates an animated 3D model shown in AR.
         </p>
         <button class="capture-primary" data-action="turnOnCamera">Turn on camera</button>
         <p class="capture-note">
@@ -143,13 +143,12 @@ export class CameraCaptureFlow {
         <ul class="quality-warnings">${warningItems}</ul>
 
         <p class="capture-note">
-          On Continue, this image is uploaded to the backend and saved in
-          <strong>backend/captured_images/</strong>.
+          On Continue, this image is sent to the animation server which generates an animated 3D model for AR.
         </p>
 
         <div class="capture-actions-split">
           <button class="capture-secondary" data-action="retake">Retake</button>
-          <button class="capture-primary" data-action="continueAfterCapture">Continue & save image</button>
+          <button class="capture-primary" data-action="continueAfterCapture">Continue & generate animation</button>
         </div>
       </div>
     `;
@@ -158,46 +157,45 @@ export class CameraCaptureFlow {
   }
 
   renderLoading() {
-    const title = this.loadingTitle || 'Saving captured image';
-    const description = this.loadingDescription || `Uploading the captured page to the backend. It will be stored in
-          <strong>backend/captured_images/</strong> before the AR scan starts.`;
+    const title = this.loadingTitle || 'Generating animation';
+    const description = this.loadingDescription || 'Sending the captured image to the animation server. An animated 3D model will be returned and placed in AR.';
 
     this.container.innerHTML = `
       <div class="capture-card capture-card--center">
         <div class="loading-spinner"></div>
         <h2>${escapeHtml(title)}</h2>
         <p>${description}</p>
-        <p class="capture-note">Backend API: ${escapeHtml(getCaptureApiBaseUrl())}</p>
+        <p class="capture-note">Animation server: ${escapeHtml(getAnimationApiUrl())}</p>
       </div>
     `;
   }
 
   renderInstructions() {
-    const upload = this.captureData?.upload;
-    const savedPath = upload?.storedPath || 'backend/captured_images/';
+    const glbCount = this.captureData?.animationGlbs?.length ?? 0;
+    const glbLabel = glbCount === 1 ? '1 animated model' : `${glbCount} animated models`;
     const messageBlock = this.instructionsMessage
       ? `<div class="capture-status-message">${escapeHtml(this.instructionsMessage)}</div>`
       : '';
 
     this.container.innerHTML = `
       <div class="capture-card">
-        <div class="capture-badge">Image saved</div>
+        <div class="capture-badge">Animation ready</div>
         <h2>Scan the same book/page</h2>
         ${messageBlock}
         <p>
-          Captured image saved successfully at:
-          <strong>${escapeHtml(savedPath)}</strong>
+          The animation server returned <strong>${escapeHtml(glbLabel)}</strong>.
+          Place them in AR by scanning the page and locking the plane.
         </p>
         <p>
           Keep the same page on a flat surface. Move the phone slowly until the reticle appears.
-          Then adjust scale/orientation if needed and double-tap/lock the page plane.
+          Then double-tap to lock the page plane and the animated model will appear.
         </p>
 
         <div class="instruction-list">
           <div><strong>1</strong><span>Keep the whole page visible.</span></div>
           <div><strong>2</strong><span>Use good lighting and avoid shadows.</span></div>
           <div><strong>3</strong><span>Scan slowly until surface tracking is ready.</span></div>
-          <div><strong>4</strong><span>Double-tap to lock the anchor before adding characters.</span></div>
+          <div><strong>4</strong><span>Double-tap to lock the anchor — your animated model appears.</span></div>
         </div>
 
         <div class="capture-actions-split">
@@ -213,15 +211,15 @@ export class CameraCaptureFlow {
   renderUploadError() {
     this.container.innerHTML = `
       <div class="capture-card capture-card--center">
-        <div class="capture-badge capture-badge--danger">Upload error</div>
-        <h2>Captured image was not saved</h2>
-        <p>${escapeHtml(this.errorMessage || 'Backend upload failed.')}</p>
+        <div class="capture-badge capture-badge--danger">Animation server error</div>
+        <h2>Could not generate animation</h2>
+        <p>${escapeHtml(this.errorMessage || 'The animation server did not respond correctly.')}</p>
         <p class="capture-note">
-          Start the backend first: <strong>cd backend && uvicorn main:app --reload --port 8000</strong>
+          Animation server: <strong>${escapeHtml(getAnimationApiUrl())}</strong>
         </p>
         <div class="capture-actions-split">
           <button class="capture-secondary" data-action="retake">Retake</button>
-          <button class="capture-primary" data-action="retryUpload">Retry save</button>
+          <button class="capture-primary" data-action="retryUpload">Retry</button>
         </div>
       </div>
     `;
@@ -407,24 +405,15 @@ export class CameraCaptureFlow {
       return;
     }
 
-    this.loadingTitle = 'Saving captured image';
-    this.loadingDescription = `Uploading the captured page to the backend. It will be stored in
-          <strong>backend/captured_images/</strong> before the AR scan starts.`;
+    this.loadingTitle = 'Generating animation';
+    this.loadingDescription = 'Sending image to the animation server. This may take a few seconds…';
     this.step = 'loading';
     this.render();
 
     try {
-      const uploadResult = await uploadPageCapture(this.captureData);
+      const animationGlbs = await uploadImageAndGetAnimation(this.captureData);
 
-      this.captureData.upload = uploadResult;
-      this.captureData.image = {
-        ...this.captureData.image,
-        storageMode: 'backend-captured_images',
-        saved: true,
-        storedPath: uploadResult.storedPath,
-        publicUrl: uploadResult.publicUrl,
-        filename: uploadResult.filename
-      };
+      this.captureData.animationGlbs = animationGlbs;
 
       this.loadingTitle = '';
       this.loadingDescription = '';
