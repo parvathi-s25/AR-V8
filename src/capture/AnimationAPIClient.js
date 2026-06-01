@@ -18,7 +18,7 @@ export async function uploadImageAndGetAnimation(captureData) {
   const formData = new FormData();
   formData.append('image', captureData.blob, `${captureData.id}.jpg`);
 
-  const response = await fetch(ANIMATION_API_BASE_URL, {
+  const response = await fetch(`${ANIMATION_API_BASE_URL}/run`, {
     method: 'POST',
     headers: {
       // Bypass ngrok's browser-interstitial page for programmatic requests
