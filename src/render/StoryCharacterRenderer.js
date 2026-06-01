@@ -111,7 +111,8 @@ export class StoryCharacterRenderer {
       const gltf = await this.loader.loadAsync(characterConfig.assetUrl);
       const model = gltf.scene;
       model.name = `${characterConfig.id}-gltf-model`;
-      model.scale.setScalar(characterConfig.scale ?? 1);
+      model.scale.setScalar(characterConfig.scale ?? 0.06);
+      model.rotation.x = -Math.PI / 2;
       root.add(model);
 
       if (gltf.animations?.length) {
@@ -162,6 +163,7 @@ export class StoryCharacterRenderer {
     rightArm.rotation.z = -0.8;
     group.add(rightArm);
 
+    group.rotation.x = -Math.PI / 2;
     return group;
   }
 
@@ -327,7 +329,7 @@ export class StoryCharacterRenderer {
       id: item.id || `dynamic_${index}`,
       name: item.id || `Character ${index + 1}`,
       assetUrl: item.glbUrl,
-      scale: 1,
+      scale: 0.06,
       footprintRadiusMeters: 0.035,
       fallbackColor: '#38bdf8'
     }));
