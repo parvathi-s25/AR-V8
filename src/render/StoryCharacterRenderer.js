@@ -83,10 +83,7 @@ export class StoryCharacterRenderer {
         localPosition: new THREE.Vector3(0, 0.035, 0)
       };
 
-      const loaded = await this.tryLoadGLTFCharacter(characterConfig, characterRoot);
-      if (!loaded) {
-        characterRoot.add(this.createFallbackCharacter(characterConfig));
-      }
+      await this.tryLoadGLTFCharacter(characterConfig, characterRoot);
 
       const footprint = this.createFootprint(characterRoot.userData.footprintRadiusMeters);
       footprint.name = 'story-character-footprint';
