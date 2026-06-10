@@ -130,11 +130,14 @@ function isGLBContentType(contentType) {
  * Documented contract:
  *   {
  *     story: "title string",
- *     characters: [{ char_id, name, url, position: [x, y, z], rotation_y }],
+ *     characters: [{ char_id, name, url, position: [x, y, z], rotation_y, animation? }],
  *     timeline: [{ start_time, end_time, char_id, voiceover, simultaneous }]
  *   }
  *
- * Each returned character is { id, name, glbUrl, glbBlob, position: {x,y,z}|null, rotationY }.
+ * `animation` (optional) names the GLB animation clip to play for that character —
+ * StoryCharacterRenderer maps this to the loaded model's AnimationClip names.
+ *
+ * Each returned character is { id, name, glbUrl, glbBlob, position: {x,y,z}|null, rotationY, animation: string|null }.
  * Each returned timeline event is { startTime, endTime, characterId, voiceover, simultaneous }.
  */
 function extractAnimationResult(json) {
@@ -146,7 +149,8 @@ function extractAnimationResult(json) {
         glbUrl: resolveGlbUrl(item.url || item.glbUrl || item.glb_url),
         glbBlob: null,
         position: toPositionXYZ(item.position),
-        rotationY: Number(item.rotation_y ?? item.rotationY ?? 0)
+        rotationY: Number(item.rotation_y ?? item.rotationY ?? 0),
+        animation: item.animation || item.animation_name || item.animationName || null
       }))
       .filter((item) => Boolean(item.glbUrl));
 

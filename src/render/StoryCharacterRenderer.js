@@ -103,7 +103,8 @@ export class StoryCharacterRenderer {
         config: characterConfig,
         root: characterRoot,
         mixer: characterRoot.userData.mixer ?? null,
-        actions: characterRoot.userData.actions ?? new Map()
+        actions: characterRoot.userData.actions ?? new Map(),
+        activeAction: null
       });
     }
   }
@@ -126,7 +127,8 @@ export class StoryCharacterRenderer {
 
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
-      console.log(`[StoryCharacterRenderer] Loaded ${characterConfig.id}: ${gltf.animations?.length ?? 0} animation(s), bounding box size = (${size.x.toFixed(3)}, ${size.y.toFixed(3)}, ${size.z.toFixed(3)})`);
+      const clipNames = (gltf.animations ?? []).map((clip) => clip.name);
+      console.log(`[StoryCharacterRenderer] Loaded ${characterConfig.id}: ${clipNames.length} animation clip(s) [${clipNames.join(', ')}], bounding box size = (${size.x.toFixed(3)}, ${size.y.toFixed(3)}, ${size.z.toFixed(3)})`);
 
       if (gltf.animations?.length) {
         const mixer = new THREE.AnimationMixer(model);
@@ -137,6 +139,9 @@ export class StoryCharacterRenderer {
         root.userData.mixer = mixer;
         root.userData.actions = actions;
         this.mixers.push(mixer);
+        console.log(`[StoryCharacterRenderer] ${characterConfig.id}: AnimationMixer created with ${actions.size} action(s) for clip(s) [${clipNames.join(', ')}].`);
+      } else {
+        console.warn(`[StoryCharacterRenderer] ${characterConfig.id}: GLB has no animation clips — mixer not created.`);
       }
 
       return true;
@@ -144,40 +149,6 @@ export class StoryCharacterRenderer {
       console.error(`[StoryCharacterRenderer] Could not load GLB/GLTF for ${characterConfig.id} (${characterConfig.assetUrl}). Nothing will be rendered for this character.`, error);
       return false;
     }
-  }
-
-  createFallbackCharacter(characterConfig) {
-    const group = new THREE.Group();
-    group.name = `${characterConfig.id}-fallback-model`;
-
-    const color = new THREE.Color(characterConfig.fallbackColor || '#38bdf8');
-
-    const bodyGeometry = new THREE.CapsuleGeometry(0.022, 0.06, 6, 16);
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.42 });
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    body.position.y = 0.07;
-    group.add(body);
-
-    const headGeometry = new THREE.SphereGeometry(0.021, 18, 18);
-    const headMaterial = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
-    const head = new THREE.Mesh(headGeometry, headMaterial);
-    head.position.y = 0.13;
-    group.add(head);
-
-    const armGeometry = new THREE.CapsuleGeometry(0.006, 0.045, 4, 8);
-    const armMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
-    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
-    leftArm.position.set(-0.03, 0.085, 0);
-    leftArm.rotation.z = 0.8;
-    group.add(leftArm);
-
-    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
-    rightArm.position.set(0.03, 0.085, 0);
-    rightArm.rotation.z = -0.8;
-    group.add(rightArm);
-
-    group.rotation.x = -Math.PI / 2;
-    return group;
   }
 
   createFootprint(radius) {
@@ -322,19 +293,52 @@ export class StoryCharacterRenderer {
       return 'fallback-placeholder';
     }
 
-    const action = character.actions.get(requestedName) || character.actions.values().next().value;
+    const action = this.resolveAnimationAction(character, requestedName);
     if (!action) {
       return 'no-animation';
     }
 
-    for (const otherAction of character.actions.values()) {
-      if (otherAction !== action) {
-        otherAction.fadeOut(0.2);
+    const clipName = action.getClip().name;
+
+    // Already the active action — leave it running. Calling reset()/play() again
+    // every frame would snap the action's time back to 0 each frame, so the mixer
+    // would never advance and the character would appear frozen instead of animating.
+    if (character.activeAction === action) {
+      return clipName;
+    }
+
+    character.activeAction?.fadeOut(0.2);
+    action.reset().fadeIn(0.2).play();
+    character.activeAction = action;
+
+    console.log(`[StoryCharacterRenderer] ${character.config.id}: action play -> "${clipName}" (requested "${requestedName}")`);
+    return clipName;
+  }
+
+  // Mapping layer: resolves a requested animation name (from the story timeline,
+  // ultimately derived from the backend response) to an actual AnimationAction on
+  // the loaded model. Falls back to a case-insensitive match, then to the first
+  // available clip, logging whenever the requested name doesn't match the model's
+  // clip names so backend/clip naming mismatches are visible in the console.
+  resolveAnimationAction(character, requestedName) {
+    const exact = character.actions.get(requestedName);
+    if (exact) {
+      return exact;
+    }
+
+    const lowerRequested = String(requestedName).toLowerCase();
+    for (const [clipName, action] of character.actions.entries()) {
+      if (clipName.toLowerCase() === lowerRequested) {
+        console.warn(`[StoryCharacterRenderer] ${character.config.id}: animation "${requestedName}" matched clip "${clipName}" case-insensitively.`);
+        return action;
       }
     }
 
-    action.reset().fadeIn(0.2).play();
-    return action.getClip().name;
+    const fallback = character.actions.values().next().value;
+    if (fallback) {
+      console.warn(`[StoryCharacterRenderer] ${character.config.id}: animation "${requestedName}" not found in available clips [${[...character.actions.keys()].join(', ')}] — using "${fallback.getClip().name}" instead.`);
+    }
+    return fallback;
   }
 
   emitCharacterState(characters) {
@@ -370,11 +374,13 @@ export class StoryCharacterRenderer {
     const half = Math.floor(characters.length / 2);
     const timeline = characters.map((char, index) => {
       const backendPosition = backendCharacters[index].position;
+      const backendAnimation = backendCharacters[index].animation;
+      console.log(`[StoryCharacterRenderer] ${char.id}: animation received from backend = ${backendAnimation || '(none, defaulting to "Idle")'}`);
       return {
         timeSec: 0,
         characterId: char.id,
         action: 'idle',
-        animation: 'Idle',
+        animation: backendAnimation || 'Idle',
         position: backendPosition
           ? { x: backendPosition.x, z: backendPosition.z }
           : { x: (index - half) * spread, z: 0 },
