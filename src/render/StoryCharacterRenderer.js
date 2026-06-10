@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { round, vectorToJSON } from '../utils/math.js';
 
 const DEFAULT_STORY = {
@@ -30,7 +31,14 @@ export class StoryCharacterRenderer {
     this.storyUrl = storyUrl;
     this.onCharactersUpdate = onCharactersUpdate;
 
+    const dracoLoader = new DRACOLoader();
+    // Backend GLBs may be Draco-compressed; without a DRACOLoader, GLTFLoader throws
+    // and tryLoadGLTFCharacter silently falls through (no model is shown).
+    dracoLoader.setDecoderPath('/draco/');
+
     this.loader = new GLTFLoader();
+    this.loader.setDRACOLoader(dracoLoader);
+
     this.story = DEFAULT_STORY;
     this.characters = new Map();
     this.mixers = [];
@@ -44,6 +52,7 @@ export class StoryCharacterRenderer {
     this.storyStartTimestampMs = null;
     this.activePageAnchorId = null;
     this.lastTimestampMs = 0;
+    this.lastPageGroupVisible = null;
   }
 
   async load() {
@@ -101,8 +110,11 @@ export class StoryCharacterRenderer {
 
   async tryLoadGLTFCharacter(characterConfig, root) {
     if (!characterConfig.assetUrl) {
+      console.warn(`[StoryCharacterRenderer] ${characterConfig.id} has no assetUrl — nothing will be rendered for this character.`);
       return false;
     }
+
+    console.log(`[StoryCharacterRenderer] Loading GLB for ${characterConfig.id} from ${characterConfig.assetUrl}`);
 
     try {
       const gltf = await this.loader.loadAsync(characterConfig.assetUrl);
@@ -111,6 +123,10 @@ export class StoryCharacterRenderer {
       model.scale.setScalar(characterConfig.scale ?? 0.085);
       model.rotation.x = -Math.PI / 2;
       root.add(model);
+
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      console.log(`[StoryCharacterRenderer] Loaded ${characterConfig.id}: ${gltf.animations?.length ?? 0} animation(s), bounding box size = (${size.x.toFixed(3)}, ${size.y.toFixed(3)}, ${size.z.toFixed(3)})`);
 
       if (gltf.animations?.length) {
         const mixer = new THREE.AnimationMixer(model);
@@ -125,7 +141,7 @@ export class StoryCharacterRenderer {
 
       return true;
     } catch (error) {
-      console.warn(`Could not load GLB/GLTF for ${characterConfig.id}. Using fallback placeholder.`, error);
+      console.error(`[StoryCharacterRenderer] Could not load GLB/GLTF for ${characterConfig.id} (${characterConfig.assetUrl}). Nothing will be rendered for this character.`, error);
       return false;
     }
   }
@@ -185,10 +201,19 @@ export class StoryCharacterRenderer {
 
     if (!pageAnchor || !boundaryClamp) {
       this.pageGroup.visible = false;
+      if (this.lastPageGroupVisible !== false) {
+        console.log('[StoryCharacterRenderer] Page not locked yet — characters hidden until the page anchor is placed.');
+        this.lastPageGroupVisible = false;
+      }
       this.storyStartTimestampMs = null;
       this.activePageAnchorId = null;
       this.emitCharacterState([]);
       return;
+    }
+
+    if (this.lastPageGroupVisible !== true) {
+      console.log(`[StoryCharacterRenderer] Page locked — showing ${this.story.characters.length} character(s):`, this.story.characters.map((c) => c.id));
+      this.lastPageGroupVisible = true;
     }
 
     this.pageGroup.visible = true;
@@ -271,13 +296,16 @@ export class StoryCharacterRenderer {
         const b = resolved[j];
         const dx = b.position.x - a.position.x;
         const dz = b.position.z - a.position.z;
-        const distance = Math.hypot(dx, dz) || 0.0001;
+        const distance = Math.hypot(dx, dz);
         const minDistance = a.radius + b.radius + 0.015;
 
         if (distance < minDistance) {
           const push = (minDistance - distance) / 2;
-          const nx = dx / distance;
-          const nz = dz / distance;
+          // Same position (e.g. backend defaults both to [0,0,0]): pick a deterministic
+          // direction per pair so characters still separate instead of stacking.
+          const angle = distance < 1e-6 ? (j - i) * (Math.PI / 3) : Math.atan2(dz, dx);
+          const nx = Math.cos(angle);
+          const nz = Math.sin(angle);
           a.position.x -= nx * push;
           a.position.z -= nz * push;
           b.position.x += nx * push;
@@ -314,46 +342,66 @@ export class StoryCharacterRenderer {
   }
 
   /**
-   * Replace all current characters with animated GLBs received from the backend.
-   * Each item in glbItems must have { glbUrl: string, glbBlob?: Blob }.
+   * Replace all current characters with the animated GLBs + scene layout received from
+   * the backend /animate endpoint: { story, characters, timeline } as returned by
+   * AnimationAPIClient.uploadImageAndGetAnimation.
    */
-  async reloadFromGLBs(glbItems) {
-    if (!Array.isArray(glbItems) || glbItems.length === 0) {
-      console.warn('reloadFromGLBs: no GLB items provided.');
+  async reloadFromAnimationResult(animationResult) {
+    const backendCharacters = animationResult?.characters;
+    console.log('[StoryCharacterRenderer] reloadFromAnimationResult received:', animationResult);
+
+    if (!Array.isArray(backendCharacters) || backendCharacters.length === 0) {
+      console.warn('[StoryCharacterRenderer] reloadFromAnimationResult: no characters provided.');
       return;
     }
 
-    const characters = glbItems.map((item, index) => ({
+    const characters = backendCharacters.map((item, index) => ({
       id: item.id || `dynamic_${index}`,
-      name: item.id || `Character ${index + 1}`,
+      name: item.name || item.id || `Character ${index + 1}`,
       assetUrl: item.glbUrl,
       scale: 0.085,
       footprintRadiusMeters: 0.035,
       fallbackColor: '#38bdf8'
     }));
 
-    // Spread multiple characters across the page so they don't stack.
+    // Use the backend-provided position when available; otherwise spread characters
+    // across the page so they don't stack.
     const spread = 0.06;
     const half = Math.floor(characters.length / 2);
-    const timeline = characters.map((char, index) => ({
-      timeSec: 0,
-      characterId: char.id,
-      action: 'idle',
-      animation: 'Idle',
-      position: { x: (index - half) * spread, z: 0 },
-      rotationY: 0
-    }));
+    const timeline = characters.map((char, index) => {
+      const backendPosition = backendCharacters[index].position;
+      return {
+        timeSec: 0,
+        characterId: char.id,
+        action: 'idle',
+        animation: 'Idle',
+        position: backendPosition
+          ? { x: backendPosition.x, z: backendPosition.z }
+          : { x: (index - half) * spread, z: 0 },
+        rotationY: backendCharacters[index].rotationY ?? 0
+      };
+    });
+
+    const backendTimeline = Array.isArray(animationResult.timeline) ? animationResult.timeline : [];
+    const durationSec = backendTimeline.length
+      ? Math.max(30, ...backendTimeline.map((event) => event.endTime || 0))
+      : 30;
 
     this.story = {
       id: 'dynamic_story',
-      title: 'Dynamic AR Scene',
-      durationSec: 30,
+      title: animationResult.story || 'Dynamic AR Scene',
+      durationSec,
       characters,
-      timeline
+      timeline,
+      voiceoverTimeline: backendTimeline
     };
+
+    console.log('[StoryCharacterRenderer] Dynamic story characters:', characters);
+    console.log('[StoryCharacterRenderer] Dynamic story timeline:', timeline);
 
     await this.buildCharacters();
     this.storyStartTimestampMs = null;
+    this.lastPageGroupVisible = null;
     this.emitCharacterState([]);
   }
 

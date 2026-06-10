@@ -16,7 +16,7 @@ export function getAnimationApiUrl() {
 
 /**
  * POST the captured image to the animation backend.
- * Returns an array of { glbUrl, glbBlob } objects — one per animated GLB received.
+ * Returns { story, characters, timeline } — see extractAnimationResult for the shape.
  */
 export async function uploadImageAndGetAnimation(captureData) {
   if (!captureData?.blob) {
@@ -45,10 +45,14 @@ export async function uploadImageAndGetAnimation(captureData) {
     throw new Error(message);
   }
 
-  const items = await parseAnimationResponse(response);
+  const result = await parseAnimationResponse(response);
+  console.log('[AnimationAPIClient] Parsed /animate result:', result);
+
   // Pre-fetch each GLB through the proxy so GLTFLoader gets a same-origin blob: URL.
   // Without this, GLTFLoader hits ngrok directly, gets the HTML interstitial, and fails.
-  return fetchGLBsAsBlobs(items);
+  result.characters = await fetchGLBsAsBlobs(result.characters);
+  console.log('[AnimationAPIClient] Characters after GLB pre-fetch:', result.characters);
+  return result;
 }
 
 async function parseAnimationResponse(response) {
@@ -56,17 +60,26 @@ async function parseAnimationResponse(response) {
 
   if (isGLBContentType(contentType)) {
     const blob = await response.blob();
-    return [{ glbUrl: URL.createObjectURL(blob), glbBlob: blob }];
+    return singleBlobResult(blob);
   }
 
   if (contentType.includes('application/json')) {
     const json = await response.json();
-    return extractGLBsFromJSON(json);
+    console.log('[AnimationAPIClient] Raw /animate JSON response:', json);
+    return extractAnimationResult(json);
   }
 
   // Unknown content-type — attempt to treat body as binary GLB.
   const blob = await response.blob();
-  return [{ glbUrl: URL.createObjectURL(blob), glbBlob: blob }];
+  return singleBlobResult(blob);
+}
+
+function singleBlobResult(blob) {
+  return {
+    story: null,
+    timeline: null,
+    characters: [{ id: undefined, name: undefined, glbUrl: URL.createObjectURL(blob), glbBlob: blob, position: null, rotationY: 0 }]
+  };
 }
 
 // Fetch each GLB item as a blob through the Vite proxy (dev) or directly (prod).
@@ -78,14 +91,15 @@ async function fetchGLBsAsBlobs(items) {
       if (item.glbBlob) {
         return item; // already a local blob, nothing to do
       }
+      const fetchUrl = import.meta.env.DEV ? toProxyPath(item.glbUrl) : item.glbUrl;
       try {
-        const fetchUrl = import.meta.env.DEV ? toProxyPath(item.glbUrl) : item.glbUrl;
         const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(5 * 60 * 1000) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
+        console.log(`[AnimationAPIClient] GLB fetched for ${item.id || '(no id)'}: ${fetchUrl} -> ${blob.size} bytes, type=${blob.type || '(none)'}`);
         return { ...item, glbBlob: blob, glbUrl: URL.createObjectURL(blob) };
       } catch (err) {
-        console.warn(`GLB fetch failed for ${item.glbUrl}, GLTFLoader will try the URL directly:`, err);
+        console.error(`[AnimationAPIClient] GLB fetch failed for ${item.id || '(no id)'} (${fetchUrl}). GLTFLoader will try the original URL directly, which will likely fail too:`, err);
         return item;
       }
     })
@@ -110,16 +124,66 @@ function isGLBContentType(contentType) {
   );
 }
 
-function extractGLBsFromJSON(json) {
-  // Array of URL strings or { url } objects
-  if (Array.isArray(json)) {
-    return json
+/**
+ * Normalize the /animate JSON body into { story, characters, timeline }.
+ *
+ * Documented contract:
+ *   {
+ *     story: "title string",
+ *     characters: [{ char_id, name, url, position: [x, y, z], rotation_y }],
+ *     timeline: [{ start_time, end_time, char_id, voiceover, simultaneous }]
+ *   }
+ *
+ * Each returned character is { id, name, glbUrl, glbBlob, position: {x,y,z}|null, rotationY }.
+ * Each returned timeline event is { startTime, endTime, characterId, voiceover, simultaneous }.
+ */
+function extractAnimationResult(json) {
+  if (json && Array.isArray(json.characters)) {
+    const characters = json.characters
       .map((item) => ({
-        glbUrl: typeof item === 'string' ? item : (item.url || item.glbUrl || item.glb_url),
+        id: item.char_id || item.id,
+        name: item.name || item.char_id || item.id,
+        glbUrl: resolveGlbUrl(item.url || item.glbUrl || item.glb_url),
         glbBlob: null,
-        id: item.char_id || item.id || undefined
+        position: toPositionXYZ(item.position),
+        rotationY: Number(item.rotation_y ?? item.rotationY ?? 0)
       }))
       .filter((item) => Boolean(item.glbUrl));
+
+    if (!characters.length) {
+      throw new Error('Animation server responded but no character GLB URLs were found. Check the backend API contract.');
+    }
+
+    const timeline = Array.isArray(json.timeline)
+      ? json.timeline.map((event) => ({
+          startTime: Number(event.start_time ?? 0),
+          endTime: Number(event.end_time ?? 0),
+          characterId: event.char_id || event.id,
+          voiceover: event.voiceover || '',
+          simultaneous: Boolean(event.simultaneous)
+        }))
+      : null;
+
+    return { story: json.story || null, characters, timeline };
+  }
+
+  // Legacy: array of URL strings or { url } objects
+  if (Array.isArray(json)) {
+    const characters = json
+      .map((item) => ({
+        id: item.char_id || item.id,
+        name: item.name || item.char_id || item.id,
+        glbUrl: resolveGlbUrl(typeof item === 'string' ? item : (item.url || item.glbUrl || item.glb_url)),
+        glbBlob: null,
+        position: null,
+        rotationY: 0
+      }))
+      .filter((item) => Boolean(item.glbUrl));
+
+    if (!characters.length) {
+      throw new Error('Animation server responded but no GLB URL was found in the response. Check the backend API contract.');
+    }
+    return { story: null, characters, timeline: null };
   }
 
   // Single GLB URL in known field names
@@ -131,17 +195,37 @@ function extractGLBsFromJSON(json) {
     json.animatedGlbUrl;
 
   if (url) {
-    return [{ glbUrl: url, glbBlob: null }];
+    return { story: null, characters: [{ id: undefined, name: undefined, glbUrl: resolveGlbUrl(url), glbBlob: null, position: null, rotationY: 0 }], timeline: null };
   }
 
   // Multiple named GLBs as object values ending in .glb/.gltf
   const glbs = [];
   for (const [key, value] of Object.entries(json)) {
     if (typeof value === 'string' && /\.(glb|gltf)(\?|$)/i.test(value)) {
-      glbs.push({ glbUrl: value, glbBlob: null, id: key });
+      glbs.push({ id: key, name: key, glbUrl: resolveGlbUrl(value), glbBlob: null, position: null, rotationY: 0 });
     }
   }
-  if (glbs.length) return glbs;
+  if (glbs.length) {
+    return { story: null, characters: glbs, timeline: null };
+  }
 
   throw new Error('Animation server responded but no GLB URL was found in the response. Check the backend API contract.');
+}
+
+function toPositionXYZ(position) {
+  if (!Array.isArray(position) || position.length < 3) return null;
+  const [x, y, z] = position;
+  return { x: Number(x) || 0, y: Number(y) || 0, z: Number(z) || 0 };
+}
+
+// Backend may return either an absolute URL (https://.../cache/animated_glb/x.glb)
+// or a path relative to the animation API (/cache/animated_glb/x.glb). Resolve the
+// latter against ANIMATION_API_BASE_URL so toProxyPath/fetch see a real host+path.
+function resolveGlbUrl(url) {
+  if (!url) return url;
+  try {
+    return new URL(url, `${ANIMATION_API_BASE_URL}/`).toString();
+  } catch {
+    return url;
+  }
 }

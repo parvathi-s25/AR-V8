@@ -171,7 +171,7 @@ export class CameraCaptureFlow {
   }
 
   renderInstructions() {
-    const glbCount = this.captureData?.animationGlbs?.length ?? 0;
+    const glbCount = this.captureData?.animationResult?.characters?.length ?? 0;
     const glbLabel = glbCount === 1 ? '1 animated model' : `${glbCount} animated models`;
     const messageBlock = this.instructionsMessage
       ? `<div class="capture-status-message">${escapeHtml(this.instructionsMessage)}</div>`
@@ -411,9 +411,9 @@ export class CameraCaptureFlow {
     this.render();
 
     try {
-      const animationGlbs = await uploadImageAndGetAnimation(this.captureData);
+      const animationResult = await uploadImageAndGetAnimation(this.captureData);
 
-      this.captureData.animationGlbs = animationGlbs;
+      this.captureData.animationResult = animationResult;
 
       this.loadingTitle = '';
       this.loadingDescription = '';

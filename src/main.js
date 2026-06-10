@@ -59,9 +59,37 @@ class ARStorytellingOptionAApp {
     this.setupUI();
     this.setupCaptureFlow();
     this.setupARBootOverlay();
+    this.setupErrorOverlay();
     this.setupEvents();
 
     this.renderer.setAnimationLoop((timestamp, frame) => this.animate(timestamp, frame));
+  }
+
+  // On-device error display: phones rarely have devtools attached, and an
+  // uncaught error inside the XR animation loop can end the session with no
+  // visible cause. Surface errors directly on screen so they're visible during
+  // an active AR session.
+  setupErrorOverlay() {
+    this.errorOverlay = document.createElement('pre');
+    this.errorOverlay.className = 'fatal-error-overlay';
+    this.errorOverlay.style.cssText = [
+      'position: fixed', 'top: 0', 'left: 0', 'right: 0', 'z-index: 99999',
+      'max-height: 45vh', 'overflow: auto', 'margin: 0', 'padding: 8px',
+      'background: rgba(127,0,0,0.92)', 'color: #fff', 'font-size: 11px',
+      'line-height: 1.4', 'white-space: pre-wrap', 'word-break: break-word',
+      'display: none', 'font-family: monospace', 'pointer-events: none'
+    ].join(';');
+    document.body.appendChild(this.errorOverlay);
+
+    window.addEventListener('error', (event) => this.showFatalError(event.error || event.message));
+    window.addEventListener('unhandledrejection', (event) => this.showFatalError(event.reason));
+  }
+
+  showFatalError(error) {
+    const message = error?.stack || error?.message || String(error);
+    console.error('[FatalError]', error);
+    this.errorOverlay.textContent += `${this.errorOverlay.textContent ? '\n---\n' : ''}${message}`;
+    this.errorOverlay.style.display = 'block';
   }
 
   setupARButton() {
@@ -127,11 +155,14 @@ class ARStorytellingOptionAApp {
     this.state.setPageCapture(captureData);
     document.body.classList.remove('phase-capture-active');
 
-    // Load the animated GLBs returned by the backend into the AR scene.
-    if (captureData?.animationGlbs?.length) {
-      this.storyCharacterRenderer.reloadFromGLBs(captureData.animationGlbs).catch((err) => {
-        console.warn('Dynamic GLB load failed, falling back to default story characters:', err);
+    // Load the animated GLBs + scene layout returned by the backend into the AR scene.
+    if (captureData?.animationResult?.characters?.length) {
+      console.log('[main] Loading animation result into AR scene:', captureData.animationResult);
+      this.storyCharacterRenderer.reloadFromAnimationResult(captureData.animationResult).catch((err) => {
+        console.error('[main] Dynamic GLB load failed, falling back to default story characters:', err);
       });
+    } else {
+      console.warn('[main] No animationResult.characters on captureData — AR scene will keep the default story.', captureData?.animationResult);
     }
 
     // Keep the loading/instruction overlay visible until Phase 2/3 is actually ready:
@@ -265,17 +296,21 @@ class ARStorytellingOptionAApp {
   }
 
   animate(timestamp, frame) {
-    if (frame) {
-      this.hitTestManager.update(frame);
-      this.updateFingerScale(frame);
-    }
+    try {
+      if (frame) {
+        this.hitTestManager.update(frame);
+        this.updateFingerScale(frame);
+      }
 
-    this.storyCharacterRenderer.update({
-      timestampMs: timestamp,
-      pageAnchor: this.state.pageAnchor,
-      boundaryClamp: this.state.boundaryClamp,
-      fingerScaleMultiplier: this.fingerScaleMultiplier
-    });
+      this.storyCharacterRenderer.update({
+        timestampMs: timestamp,
+        pageAnchor: this.state.pageAnchor,
+        boundaryClamp: this.state.boundaryClamp,
+        fingerScaleMultiplier: this.fingerScaleMultiplier
+      });
+    } catch (error) {
+      this.showFatalError(error);
+    }
 
     this.renderer.render(this.scene, this.camera);
   }
