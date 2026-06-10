@@ -32,6 +32,14 @@ export class PageAnchor {
     });
   }
 
+  // Called every frame once a WebXR anchor is active for this page so the
+  // placed rectangle stays registered to the physical surface as ARCore/ARKit
+  // refines its tracking, instead of drifting away from a one-time pose snapshot.
+  updatePose(matrix) {
+    this.matrix.copy(matrix);
+    this.inverseMatrix.copy(matrix).invert();
+  }
+
   cloneWithSize(widthMeters, heightMeters) {
     return new PageAnchor({
       id: this.id,

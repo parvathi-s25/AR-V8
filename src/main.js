@@ -38,9 +38,12 @@ class ARStorytellingOptionAApp {
       renderer: this.renderer,
       reticle: this.reticle,
       onHitPose: (matrix, visible) => this.state.setHitPose(matrix, visible),
+      onAnchorPose: (matrixArray) => this.handleAnchorPose(matrixArray),
       onSessionChange: (active) => this.handleXRSessionChange(active),
       onError: (error) => console.error('WebXR hit test setup failed:', error)
     });
+
+    this.anchorPoseMatrix = new THREE.Matrix4();
 
     this.lastXRSelectTimestampMs = 0;
     this.controller = this.renderer.xr.getController(0);
@@ -79,7 +82,9 @@ class ARStorytellingOptionAApp {
       'line-height: 1.4', 'white-space: pre-wrap', 'word-break: break-word',
       'display: none', 'font-family: monospace', 'pointer-events: none'
     ].join(';');
-    document.body.appendChild(this.errorOverlay);
+    // Append to #ui-root (the WebXR DOM-overlay root), not <body> directly, so this
+    // stays visible during an active AR session — exactly when it's needed most.
+    this.uiRoot.appendChild(this.errorOverlay);
 
     window.addEventListener('error', (event) => this.showFatalError(event.error || event.message));
     window.addEventListener('unhandledrejection', (event) => this.showFatalError(event.reason));
@@ -93,10 +98,14 @@ class ARStorytellingOptionAApp {
   }
 
   setupARButton() {
+    // domOverlay.root must be #ui-root (not <body>): three.js's ARButton sets this
+    // element's display to 'none' when the XR session ends. If that were <body>,
+    // the entire page (including the "Start AR scan again" screen) would stay
+    // hidden after every AR session — looking like the page "refreshed" to blank.
     const button = ARButton.createButton(this.renderer, {
       requiredFeatures: ['hit-test'],
       optionalFeatures: ['dom-overlay', 'anchors', 'plane-detection', 'hand-tracking'],
-      domOverlay: { root: document.body }
+      domOverlay: { root: this.uiRoot }
     });
 
     this.arButton = button;
@@ -130,7 +139,8 @@ class ARStorytellingOptionAApp {
         setOrientation: (orientation) => this.state.setPageOrientation(orientation),
         swapOrientation: () => this.state.swapPageOrientation(),
         moveActor: (dx, dz) => this.state.moveActorLocal(dx, dz),
-        randomClamp: () => this.state.sendActorOutsideThenClamp()
+        randomClamp: () => this.state.sendActorOutsideThenClamp(),
+        stopAR: () => this.stopAR()
       }
     });
   }
@@ -216,6 +226,16 @@ class ARStorytellingOptionAApp {
     this.desktopGrid.visible = !active;
     this.hitTestManager.setSurfaceLocked(this.state.pageLocked);
 
+    // ARButton toggles #ui-root's display style itself ('' on start, 'none' on end —
+    // see setupARButton). Force it back to visible so our own UI/CSS stays in control.
+    this.uiRoot.style.display = '';
+
+    // Hide the native three.js "START AR"/"STOP AR" button once a session is running.
+    // It sits at the bottom-center of the screen with a high z-index; tapping it while
+    // trying to use our own AR HUD immediately calls session.end(), which looks like
+    // the page "refreshing" back to the instructions screen.
+    this.arButton?.classList.add('app-ar-button-hidden');
+
     if (active) {
       this.xrSessionHasStartedAtLeastOnce = true;
       this.isReturningFromXRSessionEnd = false;
@@ -258,6 +278,7 @@ class ARStorytellingOptionAApp {
 
     if (placed) {
       this.hitTestManager.setSurfaceLocked(true);
+      this.hitTestManager.requestAnchor(this.state.lastHitMatrix);
       return;
     }
 
@@ -274,6 +295,12 @@ class ARStorytellingOptionAApp {
     this.hitTestManager.setSurfaceLocked(false);
   }
 
+  // The native ARButton ("STOP AR") is hidden once a session starts (see
+  // handleXRSessionChange), so the AR HUD needs its own way to end the session.
+  stopAR() {
+    this.renderer.xr.getSession()?.end();
+  }
+
   placeMockPage() {
     if (this.renderer.xr.isPresenting) {
       console.warn('Mock page is intended for non-AR desktop testing. Use the real reticle while in AR.');
@@ -284,6 +311,18 @@ class ARStorytellingOptionAApp {
     if (placed) {
       this.hitTestManager.setSurfaceLocked(true);
     }
+  }
+
+  // Called every frame once a WebXR anchor is active for the locked page. Updates the
+  // pageAnchor's pose in place so the page rectangle/characters track the anchor's
+  // drift-corrected position instead of staying fixed at the original placement pose.
+  handleAnchorPose(matrixArray) {
+    if (!this.state.pageAnchor) {
+      return;
+    }
+
+    this.anchorPoseMatrix.fromArray(matrixArray);
+    this.state.pageAnchor.updatePose(this.anchorPoseMatrix);
   }
 
   updateDebugRenderers() {

@@ -11,7 +11,6 @@ export class DebugPageRenderer {
     this.pageMesh = null;
     this.pageEdges = null;
     this.clampEdges = null;
-    this.actor = null;
     this.actorFootprint = null;
     this.cornerMarkers = [];
 
@@ -33,10 +32,6 @@ export class DebugPageRenderer {
       this.rebuildPageGeometry(pageAnchor, boundaryClamp, footprintRadiusMeters);
     }
 
-    if (this.actor) {
-      this.actor.position.copy(actorLocalPosition);
-    }
-
     if (this.actorFootprint) {
       this.actorFootprint.position.set(actorLocalPosition.x, 0.003, actorLocalPosition.z);
     }
@@ -52,7 +47,7 @@ export class DebugPageRenderer {
     const pageMaterial = new THREE.MeshStandardMaterial({
       color: 0x22c55e,
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.3,
       metalness: 0,
       roughness: 0.9,
       side: THREE.DoubleSide
@@ -87,9 +82,6 @@ export class DebugPageRenderer {
 
     this.actorFootprint = this.createActorFootprint(footprintRadiusMeters);
     this.pageGroup.add(this.actorFootprint);
-
-    this.actor = this.createDebugActor();
-    this.pageGroup.add(this.actor);
   }
 
   clearPageChildren() {
@@ -101,7 +93,6 @@ export class DebugPageRenderer {
     this.pageMesh = null;
     this.pageEdges = null;
     this.clampEdges = null;
-    this.actor = null;
     this.actorFootprint = null;
     this.cornerMarkers = [];
   }
@@ -131,25 +122,6 @@ export class DebugPageRenderer {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.y = 0.003;
     return mesh;
-  }
-
-  createDebugActor() {
-    const group = new THREE.Group();
-
-    const bodyGeometry = new THREE.CapsuleGeometry(0.018, 0.05, 6, 14);
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.4 });
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    body.position.y = 0.055;
-    group.add(body);
-
-    const headGeometry = new THREE.SphereGeometry(0.018, 18, 18);
-    const headMaterial = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
-    const head = new THREE.Mesh(headGeometry, headMaterial);
-    head.position.y = 0.105;
-    group.add(head);
-
-    group.position.set(0, 0.035, 0);
-    return group;
   }
 
   disposeObject(object) {

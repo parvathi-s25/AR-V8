@@ -202,6 +202,7 @@ export class DebugPanel {
         <button data-ar-action="place" ${canPlace ? '' : 'disabled'}>${locked ? 'Locked' : 'Lock page'}</button>
         <button data-ar-action="reset" class="secondary" ${hasPage ? '' : 'disabled'}>Reset</button>
         <button data-ar-action="showDebug" class="secondary">Debug</button>
+        <button data-ar-action="stopAR" class="danger">Stop AR</button>
       </div>
     `;
 
@@ -280,6 +281,9 @@ export class DebugPanel {
       case 'showDebug':
         this.forceDebugOpenInAR = true;
         this.render();
+        break;
+      case 'stopAR':
+        this.actions.stopAR();
         break;
       default:
         break;

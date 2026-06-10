@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+
 /**
  * Minimal WebXR hit-test manager.
  *
@@ -6,16 +8,25 @@
  * every XR frame when a surface hit is available.
  */
 export class WebXRHitTestManager {
-  constructor({ renderer, reticle, onHitPose, onSessionChange, onError }) {
+  constructor({ renderer, reticle, onHitPose, onAnchorPose, onSessionChange, onError }) {
     this.renderer = renderer;
     this.reticle = reticle;
     this.onHitPose = onHitPose;
+    this.onAnchorPose = onAnchorPose;
     this.onSessionChange = onSessionChange;
     this.onError = onError;
 
     this.hitTestSource = null;
     this.hitTestSourceRequested = false;
     this.surfaceLocked = false;
+
+    // WebXR anchor for the locked page pose. Without this, the page rectangle is a
+    // one-time pose snapshot that can visibly drift away from the physical page as
+    // ARCore/ARKit refines its tracking. With it, the anchor's pose is re-resolved
+    // every frame so the page stays registered to the real-world surface.
+    this.pendingAnchorMatrix = null;
+    this.activeAnchor = null;
+    this.anchorSpace = null;
 
     this.handleSessionStart = this.handleSessionStart.bind(this);
     this.handleSessionEnd = this.handleSessionEnd.bind(this);
@@ -40,6 +51,8 @@ export class WebXRHitTestManager {
     this.reticle.visible = false;
     this.onHitPose?.(null, false);
     this.onSessionChange?.(false);
+
+    this.clearAnchor();
   }
 
   setSurfaceLocked(locked) {
@@ -47,6 +60,24 @@ export class WebXRHitTestManager {
 
     if (locked) {
       this.reticle.visible = false;
+    } else {
+      this.clearAnchor();
+    }
+  }
+
+  clearAnchor() {
+    this.activeAnchor?.delete?.();
+    this.activeAnchor = null;
+    this.anchorSpace = null;
+    this.pendingAnchorMatrix = null;
+  }
+
+  // Ask the XR system to create a persistent XRAnchor at the given pose (called once,
+  // right after the page is locked). Resolution happens asynchronously; once resolved,
+  // updateAnchorPose() feeds the anchor's live pose back via onAnchorPose every frame.
+  requestAnchor(matrix) {
+    if (matrix) {
+      this.pendingAnchorMatrix = matrix.clone();
     }
   }
 
@@ -72,6 +103,11 @@ export class WebXRHitTestManager {
       return;
     }
 
+    const referenceSpace = this.renderer.xr.getReferenceSpace();
+
+    this.processPendingAnchor(frame, referenceSpace);
+    this.updateAnchorPose(frame, referenceSpace);
+
     // Once the page plane is locked, stop updating the reticle/hit pose.
     // This prevents accidental plane changes and makes the placed page anchor stable
     // until the user explicitly presses Reset page.
@@ -95,7 +131,6 @@ export class WebXRHitTestManager {
       return;
     }
 
-    const referenceSpace = this.renderer.xr.getReferenceSpace();
     const hitTestResults = frame.getHitTestResults(this.hitTestSource);
 
     if (hitTestResults.length > 0) {
@@ -112,6 +147,53 @@ export class WebXRHitTestManager {
 
     this.reticle.visible = false;
     this.onHitPose?.(null, false);
+  }
+
+  // Resolve a pending requestAnchor() call. Must run inside an XR frame callback
+  // since XRFrame.createAnchor() is only valid there. Falls back silently (page
+  // keeps its static placed pose) on devices/browsers without the anchors feature.
+  processPendingAnchor(frame, referenceSpace) {
+    if (!this.pendingAnchorMatrix) {
+      return;
+    }
+
+    const matrix = this.pendingAnchorMatrix;
+    this.pendingAnchorMatrix = null;
+
+    if (typeof frame.createAnchor !== 'function') {
+      return;
+    }
+
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    matrix.decompose(position, quaternion, scale);
+
+    const transform = new XRRigidTransform(
+      { x: position.x, y: position.y, z: position.z },
+      { x: quaternion.x, y: quaternion.y, z: quaternion.z, w: quaternion.w }
+    );
+
+    frame.createAnchor(transform, referenceSpace)
+      .then((anchor) => {
+        this.activeAnchor = anchor;
+        this.anchorSpace = anchor.anchorSpace;
+      })
+      .catch((error) => {
+        console.warn('[WebXRHitTestManager] XRAnchor not available; the placed page will keep its static pose.', error);
+      });
+  }
+
+  // Feed the anchor's live (drift-corrected) pose back to the app every frame.
+  updateAnchorPose(frame, referenceSpace) {
+    if (!this.anchorSpace) {
+      return;
+    }
+
+    const pose = frame.getPose(this.anchorSpace, referenceSpace);
+    if (pose) {
+      this.onAnchorPose?.(pose.transform.matrix);
+    }
   }
 
   dispose() {
