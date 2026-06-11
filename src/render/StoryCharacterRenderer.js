@@ -53,6 +53,20 @@ export class StoryCharacterRenderer {
     this.activePageAnchorId = null;
     this.lastTimestampMs = 0;
     this.lastPageGroupVisible = null;
+
+    this.voiceoverController = null;
+    this.activeVoiceoverEntry = null; // { characterId, voiceover, startTime, endTime }
+
+    this.voices = [];
+    this.charVoiceMap = new Map(); // characterId → SpeechSynthesisVoice | null
+
+    // Voices load async on some browsers (notably Chrome) — populate now and again
+    // once the browser fires 'voiceschanged'.
+    const loadVoices = () => {
+      this.voices = window.speechSynthesis?.getVoices() ?? [];
+    };
+    loadVoices();
+    window.speechSynthesis?.addEventListener('voiceschanged', loadVoices);
   }
 
   async load() {
@@ -176,6 +190,7 @@ export class StoryCharacterRenderer {
         console.log('[StoryCharacterRenderer] Page not locked yet — characters hidden until the page anchor is placed.');
         this.lastPageGroupVisible = false;
       }
+      this.stopVoiceovers();
       this.storyStartTimestampMs = null;
       this.activePageAnchorId = null;
       this.emitCharacterState([]);
@@ -194,6 +209,10 @@ export class StoryCharacterRenderer {
     if (this.activePageAnchorId !== pageAnchor.id) {
       this.activePageAnchorId = pageAnchor.id;
       this.storyStartTimestampMs = timestampMs;
+
+      if (this.story.voiceoverTimeline?.length) {
+        this.startVoiceoverSequence(this.story.voiceoverTimeline);
+      }
     }
 
     const elapsedSec = ((timestampMs - this.storyStartTimestampMs) / 1000) % this.story.durationSec;
@@ -238,16 +257,24 @@ export class StoryCharacterRenderer {
   }
 
   computeDesiredCharacterStates(elapsedSec) {
+    const activeCharId = this.activeVoiceoverEntry?.characterId ?? null;
+
     return this.story.characters.map((character) => {
       const events = this.story.timeline
         .filter((event) => event.characterId === character.id && event.timeSec <= elapsedSec)
         .sort((a, b) => b.timeSec - a.timeSec);
       const activeEvent = events[0] || this.story.timeline.find((event) => event.characterId === character.id);
 
+      // When a voiceover is active, idle every character except the speaking one
+      // so only one character animates at a time.
+      const animation = (activeCharId && character.id !== activeCharId)
+        ? 'Idle'
+        : (activeEvent?.animation || 'Idle');
+
       return {
         characterId: character.id,
         action: activeEvent?.action || 'idle',
-        animation: activeEvent?.animation || 'Idle',
+        animation,
         position: activeEvent?.position || { x: 0, z: 0 },
         rotationY: activeEvent?.rotationY || 0,
         radius: character.footprintRadiusMeters ?? 0.035
@@ -341,6 +368,73 @@ export class StoryCharacterRenderer {
     return fallback;
   }
 
+  // Plays the voiceover timeline one entry at a time using the Web Speech API.
+  // While an entry is active, computeDesiredCharacterStates idles every character
+  // except the one currently speaking (this.activeVoiceoverEntry.characterId).
+  startVoiceoverSequence(voiceoverTimeline) {
+    this.stopVoiceovers();
+    if (!voiceoverTimeline?.length || !window.speechSynthesis) return;
+
+    const entries = [...voiceoverTimeline].sort((a, b) => a.startTime - b.startTime);
+    let idx = 0;
+    let cancelled = false;
+    this.voiceoverController = { cancel: () => { cancelled = true; } };
+
+    const playNext = () => {
+      if (cancelled) return;
+      const entry = entries[idx % entries.length];
+      idx++;
+      this.activeVoiceoverEntry = entry;
+
+      const utter = new SpeechSynthesisUtterance(entry.voiceover);
+      utter.lang = 'en-IN';
+      utter.rate = 0.85;
+      utter.pitch = 1.0;
+
+      const assignedVoice = this.charVoiceMap.get(entry.characterId);
+      if (assignedVoice) utter.voice = assignedVoice;
+
+      utter.onend = () => {
+        if (cancelled) return;
+        this.activeVoiceoverEntry = null;
+        const next = entries[idx % entries.length];
+        const gapSec = (next && idx <= entries.length)
+          ? Math.max(0, next.startTime - entry.endTime) : 2;
+        setTimeout(playNext, Math.max(400, gapSec * 1000));
+      };
+      utter.onerror = () => {
+        if (cancelled) return;
+        this.activeVoiceoverEntry = null;
+        setTimeout(playNext, 1000);
+      };
+
+      speechSynthesis.speak(utter);
+    };
+
+    speechSynthesis.cancel();
+    playNext();
+  }
+
+  stopVoiceovers() {
+    this.voiceoverController?.cancel();
+    this.voiceoverController = null;
+    this.activeVoiceoverEntry = null;
+    window.speechSynthesis?.cancel();
+  }
+
+  // Gives each character a distinct voice (cycling through the browser's installed
+  // voices) so simultaneous-feeling dialogue is distinguishable by ear. Falls back
+  // to the browser default voice if none are available yet.
+  assignVoicesToCharacters(characterIds) {
+    this.charVoiceMap.clear();
+    const voices = this.voices;
+
+    characterIds.forEach((id, idx) => {
+      const voice = voices.length > 0 ? voices[idx % voices.length] : null;
+      this.charVoiceMap.set(id, voice);
+    });
+  }
+
   emitCharacterState(characters) {
     this.onCharactersUpdate?.(characters);
   }
@@ -405,6 +499,8 @@ export class StoryCharacterRenderer {
     console.log('[StoryCharacterRenderer] Dynamic story characters:', characters);
     console.log('[StoryCharacterRenderer] Dynamic story timeline:', timeline);
 
+    this.assignVoicesToCharacters(characters.map((c) => c.id));
+
     await this.buildCharacters();
     this.storyStartTimestampMs = null;
     this.lastPageGroupVisible = null;
@@ -412,6 +508,7 @@ export class StoryCharacterRenderer {
   }
 
   clearCharacters() {
+    this.stopVoiceovers();
     while (this.pageGroup.children.length > 0) {
       const child = this.pageGroup.children.pop();
       disposeObject(child);
